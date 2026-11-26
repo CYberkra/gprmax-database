@@ -1,0 +1,6 @@
+* text=auto
+*.in text eol=lf
+*.py text eol=lf
+*.h5 binary
+*.png binary
+*.ttf binary

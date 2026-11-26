@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>山坡下的拱形洞室 · 三维模型</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #fafbf9; color: #203640; font: 15px/1.5 "Microsoft YaHei UI", "PingFang SC", sans-serif; }
+  main { max-width: 1200px; margin: auto; padding: clamp(16px, 3vw, 38px); }
+  h1 { margin: 0 0 5px; font-size: clamp(24px, 3vw, 34px); line-height: 1.3; }
+  .summary { margin: 0 0 18px; color: #485f69; }
+  .toolbar, .group, .legend { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+  .toolbar { justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+  .label { color: #40555e; font-size: 13px; margin-right: 3px; }
+  button { color: #25424b; background: white; border: 1px solid #afbdbe; border-radius: 6px; padding: 6px 12px; cursor: pointer; font: inherit; font-size: 14px; }
+  button[aria-pressed="true"] { color: white; background: #235763; border-color: #235763; }
+  button:hover { border-color: #235763; }
+  :focus-visible { outline: 3px solid #ba6b2e; outline-offset: 2px; }
+  figure { margin: 0; border: 1px solid #cbd4d1; border-radius: 10px; overflow: hidden; background: #fff; }
+  .stage { position: relative; }
+  canvas { display: block; touch-action: none; width: 100%; height: clamp(320px, 66vh, 670px); cursor: grab; }
+  canvas:active { cursor: grabbing; }
+  canvas:focus-visible { outline-offset: -3px; }
+  .zoom { position: absolute; right: 12px; bottom: 12px; display: flex; gap: 4px; }
+  .zoom button { line-height: 1; width: 32px; height: 32px; padding: 0; font-size: 20px; }
+  figcaption { padding: 10px 14px; border-top: 1px solid #e0e5e2; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px 16px; color: #40555e; font-size: 13px; }
+  .legend { gap: 13px; }
+  .legend span { display: flex; align-items: center; gap: 5px; }
+  .legend i { width: 14px; height: 10px; border: 1px solid #53656b; display: inline-block; }
+  .help { margin: 9px 1px 0; color: #566b74; font-size: 13px; }
+  @media (max-width: 560px) { main { padding: 12px; } button { padding: 6px 9px; } }
+</style>
+<main>
+  <h1>山坡下的拱形洞室</h1>
+  <p class="summary">拱顶竖向覆深 30 m · 洞室净宽 12 m、净高 8 m · 混凝土衬砌厚 0.40 m</p>
+  <div class="toolbar">
+    <div class="group" role="group" aria-label="模型显示">
+      <span class="label">显示</span>
+      <button data-mode="cut" aria-pressed="true">剖开山体</button>
+      <button data-mode="full" aria-pressed="false">完整山体</button>
+      <button data-mode="lining" aria-pressed="false">仅看衬砌</button>
+    </div>
+    <div class="group" role="group" aria-label="预设视角">
+      <span class="label">视角</span>
+      <button data-camera="oblique" aria-pressed="true">立体</button>
+      <button data-camera="section" aria-pressed="false">正剖面</button>
+    </div>
+  </div>
+  <figure>
+    <div class="stage">
+      <canvas tabindex="0" aria-label="可旋转的山坡与拱形洞室三维模型" aria-describedby="help">
+        坡面下为竖厚 8 m 的黏土及下伏砂岩。拱顶外缘竖向覆深 30 m，拱顶、直墙和底板厚 0.40 m。
+      </canvas>
+      <div class="zoom">
+        <button id="out" aria-label="缩小" title="缩小">−</button>
+        <button id="in" aria-label="放大" title="放大">+</button>
+      </div>
+    </div>
+    <figcaption>
+      <span id="caption" aria-live="polite"></span>
+      <span class="legend" aria-label="材料图例">
+        <span><i style="background:#ca8c6c"></i>黏土</span>
+        <span><i style="background:#ecd5a2"></i>砂岩</span>
+        <span><i style="background:#637784"></i>混凝土</span>
+      </span>
+    </figcaption>
+  </figure>
+  <p id="help" class="help">拖动旋转，滚轮或双指缩放。选中图面后可用方向键旋转。点击视角按钮可恢复初始比例。</p>
+</main>
+<script>
+"use strict";
+const canvas = document.querySelector("canvas");
+const ctx = canvas.getContext("2d", {alpha: false});
+const captions = {
+  cut: "沿 y = 10 m 剖开山体，露出前半段衬砌。洞室沿 y 轴贯通 20 m。",
+  full: "山体与洞室沿 y 轴延伸 20 m。坡面下 8 m 为黏土，其下为砂岩。",
+  lining: "半圆内拱半径 6 m，起拱处距底板顶 2 m。两侧墙与底板相连。"
+};
+const deg = Math.PI / 180;
+const centerX = 24, springZ = 10, floorZ = 8, thickness = 0.4;
+const radius = 6, outer = radius + thickness, lengthY = 20;
+const slope = x => 46.4 + 0.2 * (x - centerX);
+const rockTop = x => slope(x) - 8;
+const colors = {clay:[202,140,108], rock:[236,213,162], lining:[99,119,132]};
+const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
+let mode = "cut", camera = "oblique", yaw, pitch, zoom;
+let mesh, buffer, depth, pixels, pending = false;
+
+// Each quad is stored as two triangles with its own outward normal.
+function buildMesh() {
+  const faces = [];
+  function quad(a, b, c, d, normal, material) {
+    const light = (-0.40 * normal[0] - 0.35 * normal[1] + 0.80 * normal[2]);
+    const shade = 0.82 + 0.22 * light;
+    const [r,g,blue] = colors[material].map(v => Math.round(clamp(v * shade, 0, 255)));
+    const packed = (255 << 24) | (blue << 16) | (g << 8) | r;
+    faces.push([a,b,c,packed], [a,c,d,packed]);
+  }
+  function cap(y, shape, material, side) {
+    quad(...shape.map(([x,z]) => [x,y,z]), [0,side,0], material);
+  }
+  function strip(a,b,y0,y1,normal,material) {
+    quad([a[0],y0,a[1]], [b[0],y0,b[1]], [b[0],y1,b[1]], [a[0],y1,a[1]], normal, material);
+  }
+  function arc(r,i) {
+    const angle = Math.PI * i / 64;
+    return [centerX - r * Math.cos(angle), springZ + r * Math.sin(angle)];
+  }
+  const left = centerX-outer, right = centerX+outer;
+  const bottom = floorZ-thickness;
+  if (mode !== "lining") {
+    const y0 = mode === "cut" ? 10 : 0;
+    for (const [y,side] of [[y0,-1],[lengthY,1]]) {
+      cap(y, [[0,rockTop(0)],[48,rockTop(48)],[48,slope(48)],[0,slope(0)]], "clay", side);
+      for (const [a,b] of [[0,left],[right,48]]) {
+        cap(y, [[a,0],[b,0],[b,rockTop(b)],[a,rockTop(a)]], "rock", side);
+      }
+      cap(y, [[left,0],[right,0],[right,bottom],[left,bottom]], "rock", side);
+      for (let i=0; i<64; i++) {
+        const a = arc(outer,i), b = arc(outer,i+1);
+        cap(y, [a,b,[b[0],rockTop(b[0])],[a[0],rockTop(a[0])]], "rock", side);
+      }
+    }
+    const above = [-0.2/Math.hypot(1,0.2),0,1/Math.hypot(1,0.2)];
+    strip([0,slope(0)],[48,slope(48)],y0,lengthY,above,"clay");
+    strip([0,0],[48,0],y0,lengthY,[0,0,-1],"rock");
+    for (const [x,n] of [[0,-1],[48,1]]) {
+      strip([x,0],[x,rockTop(x)],y0,lengthY,[n,0,0],"rock");
+      strip([x,rockTop(x)],[x,slope(x)],y0,lengthY,[n,0,0],"clay");
+    }
+  }
+  // The lining is a hollow extrusion, including its inside and both open ends.
+  const innerLeft = centerX-radius, innerRight = centerX+radius;
+  for (let i=0; i<64; i++) {
+    const ao=arc(outer,i), bo=arc(outer,i+1), ai=arc(radius,i), bi=arc(radius,i+1);
+    const mid = (i+0.5)*Math.PI/64, nx = -Math.cos(mid), nz = Math.sin(mid);
+    strip(ao,bo,0,lengthY,[nx,0,nz],"lining");
+    strip(ai,bi,0,lengthY,[-nx,0,-nz],"lining");
+    for (const [y,n] of [[0,-1],[lengthY,1]]) cap(y,[ao,bo,bi,ai],"lining",n);
+  }
+  strip([left,bottom],[right,bottom],0,lengthY,[0,0,-1],"lining");
+  strip([innerLeft,floorZ],[innerRight,floorZ],0,lengthY,[0,0,1],"lining");
+  for (const [xo,xi,n] of [[left,innerLeft,-1],[right,innerRight,1]]) {
+    strip([xo,bottom],[xo,springZ],0,lengthY,[n,0,0],"lining");
+    strip([xi,floorZ],[xi,springZ],0,lengthY,[-n,0,0],"lining");
+  }
+  for (const [y,n] of [[0,-1],[lengthY,1]]) {
+    cap(y,[[left,bottom],[right,bottom],[right,floorZ],[left,floorZ]],"lining",n);
+    for (const [a,b] of [[left,innerLeft],[innerRight,right]]) {
+      cap(y,[[a,floorZ],[b,floorZ],[b,springZ],[a,springZ]],"lining",n);
+    }
+  }
+  return faces;
+}
+
+// Orthographic, two-sided z-buffer rendering uses only the browser's 2D canvas.
+function raster(a,b,c,color,w,h) {
+  const ax=a[0], ay=a[1], bx=b[0], by=b[1], cx=c[0], cy=c[1];
+  const det=(bx-ax)*(cy-ay)-(by-ay)*(cx-ax);
+  if (Math.abs(det)<0.00001) return;
+  const x0=Math.max(0,Math.ceil(Math.min(ax,bx,cx)-0.5));
+  const x1=Math.min(w-1,Math.floor(Math.max(ax,bx,cx)-0.5));
+  const y0=Math.max(0,Math.ceil(Math.min(ay,by,cy)-0.5));
+  const y1=Math.min(h-1,Math.floor(Math.max(ay,by,cy)-0.5));
+  const ux=(cy-ay)/det, uy=(ax-cx)/det, vx=(ay-by)/det, vy=(bx-ax)/det;
+  for (let y=y0; y<=y1; y++) {
+    let u=ux*(x0+0.5-ax)+uy*(y+0.5-ay), v=vx*(x0+0.5-ax)+vy*(y+0.5-ay);
+    for (let x=x0, at=y*w+x0; x<=x1; x++,at++,u+=ux,v+=vx) {
+      if (u < -1e-7 || v < -1e-7 || u+v > 1.0000001) continue;
+      const z=a[2]+u*(b[2]-a[2])+v*(c[2]-a[2]);
+      if (z >= depth[at]) { depth[at]=z; pixels[at]=color; }
+    }
+  }
+}
+function draw() {
+  pending = false;
+  const box=canvas.getBoundingClientRect();
+  if (box.width<1 || box.height<1) return;
+  const dpr=Math.min(window.devicePixelRatio||1,1.5);
+  const w=Math.round(box.width*dpr), h=Math.round(box.height*dpr);
+  if (!buffer || canvas.width!==w || canvas.height!==h) {
+    canvas.width=w; canvas.height=h;
+    buffer=ctx.createImageData(w,h); pixels=new Uint32Array(buffer.data.buffer);
+    depth=new Float32Array(w*h);
+  }
+  pixels.fill(0xfff6f8f7); depth.fill(-Infinity);
+  const sy=Math.sin(yaw), cy=Math.cos(yaw), sp=Math.sin(pitch), cp=Math.cos(pitch);
+  const lining=mode==="lining";
+  const extent=lining ? [12.8,20,8.8] : [48,20,51.2];
+  const worldWidth=Math.abs(cy)*extent[0]+Math.abs(sy)*extent[1];
+  const worldHeight=Math.abs(sy*sp)*extent[0]+Math.abs(cy*sp)*extent[1]+cp*extent[2];
+  const scale=zoom*Math.min(w*0.87/worldWidth,h*0.86/worldHeight);
+  const zMid=lining ? 12 : 25.6;
+  function project([x,y,z]) {
+    x-=centerX; y-=10; z-=zMid;
+    return [w/2+scale*(cy*x+sy*y),h/2-scale*(-sy*sp*x+cy*sp*y+cp*z),sy*cp*x-cy*cp*y+sp*z];
+  }
+  for (const [a,b,c,color] of mesh) raster(project(a),project(b),project(c),color,w,h);
+  ctx.putImageData(buffer,0,0);
+  ctx.save();
+  // Measurements lie on the exposed section and are hidden after a free rotation.
+  function dimension(start,end,label,fraction,offsetX,offsetY) {
+    const a=project(start), b=project(end), dx=b[0]-a[0], dy=b[1]-a[1], len=Math.hypot(dx,dy);
+    if (len<22*dpr) return;
+    const nx=-dy/len*3*dpr, ny=dx/len*3*dpr;
+    ctx.strokeStyle="#175368"; ctx.lineWidth=1.5*dpr; ctx.beginPath();
+    ctx.moveTo(a[0],a[1]); ctx.lineTo(b[0],b[1]);
+    for (const [x,y] of [a,b]) { ctx.moveTo(x-nx,y-ny); ctx.lineTo(x+nx,y+ny); }
+    ctx.stroke();
+    const tx=a[0]+fraction*dx+offsetX*dpr, ty=a[1]+fraction*dy+offsetY*dpr;
+    ctx.font="600 "+(13*dpr)+"px sans-serif"; ctx.textBaseline="middle";
+    ctx.textAlign=offsetX===0 ? "center" : "left";
+    ctx.strokeStyle="#f8f9f3"; ctx.lineWidth=3*dpr; ctx.lineJoin="round";
+    ctx.strokeText(label,tx,ty); ctx.fillStyle="#174b5c"; ctx.fillText(label,tx,ty);
+  }
+  if (!lining && camera!=="custom") {
+    const faceY=mode==="cut" ? 10 : 0;
+    dimension([24,faceY,16.4],[24,faceY,slope(24)],"30 m",0.55,6,0);
+    dimension([8,faceY,rockTop(8)],[8,faceY,slope(8)],"8 m",0.5,6,0);
+  } else if (lining && camera==="section") {
+    dimension([24,0,floorZ],[24,0,springZ+radius],"净高 8 m",0.55,6,0);
+    dimension([18,0,9],[30,0,9],"净宽 12 m",0.30,0,-11);
+  }
+  ctx.scale(dpr,dpr);
+  const ox=42, oy=48;
+  for (const [label,x,y,z] of [["x",1,0,0],["y",0,1,0],["z",0,0,1]]) {
+    const tx=cy*x+sy*y, ty=sy*sp*x-cy*sp*y-cp*z;
+    if (Math.hypot(tx,ty)<0.12) continue;
+    ctx.strokeStyle="#526b74"; ctx.fillStyle="#334f59"; ctx.lineWidth=1.4;
+    ctx.beginPath(); ctx.moveTo(ox,oy); ctx.lineTo(ox+21*tx,oy+21*ty); ctx.stroke();
+    ctx.textAlign="center"; ctx.textBaseline="middle"; ctx.font="12px sans-serif";
+    ctx.fillText(label,ox+30*tx,oy+30*ty);
+  }
+  const distance=lining ? 2 : 5, bar=distance*scale/dpr;
+  if (bar<box.width*0.4) {
+    const x=17,y=box.height-16;
+    ctx.strokeStyle="#3e565e"; ctx.beginPath(); ctx.moveTo(x,y-5); ctx.lineTo(x,y);
+    ctx.lineTo(x+bar,y); ctx.lineTo(x+bar,y-5); ctx.stroke();
+    ctx.fillStyle="#3e565e"; ctx.textAlign="left"; ctx.textBaseline="bottom";
+    ctx.font="12px sans-serif"; ctx.fillText(distance+" m",x,y-4);
+  }
+  ctx.restore();
+}
+function schedule() {
+  if (!pending) { pending=true; requestAnimationFrame(draw); }
+}
+function setCamera(name) {
+  camera=name; yaw=name==="section"?0:29*deg; pitch=name==="section"?0:13*deg; zoom=1;
+  document.querySelectorAll("[data-camera]").forEach(b=>b.setAttribute("aria-pressed",b.dataset.camera===camera));
+  schedule();
+}
+function rotate(dx,dy) {
+  camera="custom"; yaw-=dx*0.009; pitch=clamp(pitch+dy*0.009,-83*deg,83*deg);
+  document.querySelectorAll("[data-camera]").forEach(b=>b.setAttribute("aria-pressed","false"));
+  schedule();
+}
+function magnify(factor) { zoom=clamp(zoom*factor,0.5,3.5); schedule(); }
+function setMode(name) {
+  mode=name; mesh=buildMesh(); document.querySelector("#caption").textContent=captions[name];
+  document.querySelectorAll("[data-mode]").forEach(b=>b.setAttribute("aria-pressed",b.dataset.mode===name));
+  zoom=1; schedule();
+}
+document.querySelectorAll("[data-mode]").forEach(b=>b.onclick=()=>setMode(b.dataset.mode));
+document.querySelectorAll("[data-camera]").forEach(b=>b.onclick=()=>setCamera(b.dataset.camera));
+document.querySelector("#out").onclick=()=>magnify(1/1.2);
+document.querySelector("#in").onclick=()=>magnify(1.2);
+canvas.addEventListener("wheel", e=>{
+  e.preventDefault(); magnify(Math.exp(-0.0015*clamp(e.deltaY,-250,250)));
+},{passive:false});
+const pointers=new Map();
+function separation() {
+  const [a,b]=pointers.values(); return Math.hypot(a[0]-b[0],a[1]-b[1]);
+}
+canvas.addEventListener("pointerdown",e=>{
+  if (e.button!==0) return;
+  canvas.setPointerCapture(e.pointerId); pointers.set(e.pointerId,[e.clientX,e.clientY]);
+});
+canvas.addEventListener("pointermove",e=>{
+  const last=pointers.get(e.pointerId);
+  if (!last) return;
+  const before=pointers.size===2 ? separation() : 0;
+  pointers.set(e.pointerId,[e.clientX,e.clientY]);
+  if (pointers.size===1) rotate(e.clientX-last[0],e.clientY-last[1]);
+  else if (pointers.size===2 && before>1) magnify(separation()/before);
+});
+for (const event of ["pointerup","pointercancel","lostpointercapture"]) {
+  canvas.addEventListener(event,e=>pointers.delete(e.pointerId));
+}
+canvas.addEventListener("keydown",e=>{
+  const moves={ArrowLeft:[-10,0],ArrowRight:[10,0],ArrowUp:[0,-8],ArrowDown:[0,8]};
+  if (moves[e.key]) { e.preventDefault(); rotate(...moves[e.key]); }
+  else if (e.key==="+" || e.key==="=") magnify(1.2);
+  else if (e.key==="-") magnify(1/1.2);
+});
+new ResizeObserver(schedule).observe(canvas);
+setMode("cut"); setCamera("oblique");
+</script>
+</html>

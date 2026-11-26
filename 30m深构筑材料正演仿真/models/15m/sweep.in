@@ -1,0 +1,29 @@
+#title: Hillslope arch - three-dimensional SFCW impulse B-scan
+#domain: 48 20 70.4
+#dx_dy_dz: 0.043478260869565217 0.04 0.04
+#time_window: 1.6e-6
+## PML widths in metres: x=1, y=2, z=1 on each side.
+#pml_cells: 23 50 25 23 50 25
+
+#material: 16 0.004 1 0 clay
+#material: 6.25 0.001 1 0 sandstone
+#material: 8 0.006 1 0 concrete
+
+## Vertical clay thickness 8 m; ground z=41.6+0.2*x. Extrusion axis is y.
+#box: 0 0 0 48 20 41.6 clay n
+#triangle: 0 0 41.6 48 0 41.6 48 0 51.2 20 clay n
+#box: 0 0 0 48 20 33.6 sandstone n
+#triangle: 0 0 33.6 48 0 33.6 48 0 43.2 20 sandstone n
+
+## 12 m clear width, 8 m clear height, 0.4 m lining and slab.
+#box: 17.6 0 7.6 30.4 20 10 concrete n
+#cylindrical_sector: y 24 10 0 20 6.4 0 180 concrete n
+#box: 18 0 8 30 20 10 free_space n
+#cylindrical_sector: y 24 10 0 20 6 0 180 free_space n
+
+## One time-domain impulse per station; select tones during SFCW processing.
+#waveform: impulse 1 1 pulse
+#hertzian_dipole: y 8 9.4 58.2 pulse
+#rx: 8 10.6 58.2 surface_rx Ey
+#src_steps: 1 0 0.2
+#rx_steps: 1 0 0.2
